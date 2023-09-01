@@ -140,6 +140,23 @@ mod tests {
     }
 
     #[test]
+    fn test_accumulate_zero() {
+        let volumes = [];
+
+        assert_eq!(
+            volumes.into_iter().accumulate::<Volume>(),
+            Volume::neutral()
+        );
+    }
+
+    #[test]
+    fn test_accumulate_one() {
+        let volumes = [Volume(10)];
+
+        assert_eq!(volumes.into_iter().accumulate::<Volume>(), Volume(10));
+    }
+
+    #[test]
     fn test_accumulate() {
         let volumes = [Volume(10), Volume(15), Volume(20), Volume(25), Volume(30)];
 
@@ -191,6 +208,34 @@ mod tests {
                 _ => false,
             }
         }
+    }
+
+    #[test]
+    fn partial_accumulate_zero() {
+        type VolumeSize100 = VolumeSize<100>;
+
+        let volumes = [];
+
+        let partial_accumulated = volumes
+            .into_iter()
+            .partial_accumulate::<VolumeSize100>()
+            .collect::<Vec<_>>();
+
+        assert_eq!(partial_accumulated, vec![])
+    }
+
+    #[test]
+    fn partial_accumulate_one() {
+        type VolumeSize100 = VolumeSize<100>;
+
+        let volumes = [VolumeSize100::new(Volume(60))];
+
+        let partial_accumulated = volumes
+            .into_iter()
+            .partial_accumulate::<VolumeSize100>()
+            .collect::<Vec<_>>();
+
+        assert_eq!(partial_accumulated, vec![VolumeSize100::Small(Volume(60))])
     }
 
     #[test]
