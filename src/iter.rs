@@ -23,6 +23,10 @@ pub trait Accumulate<Rhs> {
     fn accumulate<Lhs>(self) -> Lhs
     where
         Lhs: Neutral + Accumulable<Rhs>;
+
+    fn try_accumulate<Lhs>(self) -> Option<Lhs>
+    where
+        Lhs: From<Rhs> + Accumulable<Rhs>;
 }
 
 impl<I> Accumulate<I::Item> for I
@@ -35,6 +39,16 @@ where
         Lhs: Neutral + Accumulable<I::Item>,
     {
         let initial = Lhs::neutral();
+
+        self.fold(initial, |lhs, rhs| lhs.accumulate(&rhs))
+    }
+
+    #[inline]
+    fn try_accumulate<Lhs>(mut self) -> Option<Lhs>
+    where
+        Lhs: From<I::Item> + Accumulable<I::Item>,
+    {
+        let initial = Lhs::from(self.next()?);
 
         self.fold(initial, |lhs, rhs| lhs.accumulate(&rhs)).into()
     }
@@ -57,10 +71,10 @@ pub trait MaybeAccumulable<Rhs = Self> {
 }
 
 pub trait PartialAccumulate<Rhs>: Iterator {
-    fn partial_accumulate<Lhs>(self) -> PartialAccumulated<Self, Lhs>
+    fn try_partial_accumulate<Lhs>(self) -> TryPartialAccumulation<Self, Lhs>
     where
         Self: Sized,
-        Lhs: Neutral + MaybeAccumulable<Rhs>;
+        Lhs: From<Rhs> + MaybeAccumulable<Rhs>;
 }
 
 impl<I, Rhs> PartialAccumulate<Rhs> for I
@@ -68,16 +82,16 @@ where
     I: Iterator,
 {
     #[inline]
-    fn partial_accumulate<Lhs>(self) -> PartialAccumulated<Self, Lhs>
+    fn try_partial_accumulate<Lhs>(self) -> TryPartialAccumulation<Self, Lhs>
     where
         Self: Sized,
-        Lhs: Neutral + MaybeAccumulable<Rhs>,
+        Lhs: From<Rhs> + MaybeAccumulable<Rhs>,
     {
-        PartialAccumulated::new(self)
+        TryPartialAccumulation::new(self)
     }
 }
 
-pub struct PartialAccumulated<I, Lhs>
+pub struct TryPartialAccumulation<I, Lhs>
 where
     I: Iterator,
 {
@@ -85,10 +99,9 @@ where
     _lhs: PhantomData<Lhs>,
 }
 
-impl<I, Lhs> PartialAccumulated<I, Lhs>
+impl<I, Lhs> TryPartialAccumulation<I, Lhs>
 where
     I: Iterator,
-    Lhs: Neutral,
 {
     pub fn new(iter: I) -> Self {
         Self {
@@ -98,7 +111,7 @@ where
     }
 }
 
-impl<I, Lhs> Iterator for PartialAccumulated<I, Lhs>
+impl<I, Lhs> Iterator for TryPartialAccumulation<I, Lhs>
 where
     I: Iterator,
     Lhs: From<I::Item> + MaybeAccumulable<I::Item>,
@@ -218,7 +231,7 @@ mod tests {
 
         let partial_accumulated = volumes
             .into_iter()
-            .partial_accumulate::<VolumeSize100>()
+            .try_partial_accumulate::<VolumeSize100>()
             .collect::<Vec<_>>();
 
         assert_eq!(partial_accumulated, vec![])
@@ -232,7 +245,7 @@ mod tests {
 
         let partial_accumulated = volumes
             .into_iter()
-            .partial_accumulate::<VolumeSize100>()
+            .try_partial_accumulate::<VolumeSize100>()
             .collect::<Vec<_>>();
 
         assert_eq!(partial_accumulated, vec![VolumeSize100::Small(Volume(60))])
@@ -262,7 +275,7 @@ mod tests {
 
         let partial_accumulated = volumes
             .into_iter()
-            .partial_accumulate::<VolumeSize100>()
+            .try_partial_accumulate::<VolumeSize100>()
             .collect::<Vec<_>>();
 
         assert_eq!(
