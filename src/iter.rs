@@ -1,30 +1,10 @@
 use std::iter::Peekable;
 use std::marker::PhantomData;
 
-pub trait Neutral {
-    fn neutral() -> Self;
-}
-
-pub trait Accumulable<Rhs = Self> {
-    fn accumulate_in(&mut self, rhs: &Rhs);
-
-    #[inline]
-    fn accumulate(mut self, rhs: &Rhs) -> Self
-    where
-        Self: Sized,
-    {
-        self.accumulate_in(rhs);
-
-        self
-    }
-}
+use crate::{Accumulable, MaybeAccumulable};
 
 pub trait Accumulate<Rhs> {
-    fn accumulate<Lhs>(self) -> Lhs
-    where
-        Lhs: Neutral + Accumulable<Rhs>;
-
-    fn try_accumulate<Lhs>(self) -> Option<Lhs>
+    fn accumulate<Lhs>(self) -> Option<Lhs>
     where
         Lhs: From<Rhs> + Accumulable<Rhs>;
 }
@@ -34,17 +14,7 @@ where
     I: Iterator,
 {
     #[inline]
-    fn accumulate<Lhs>(self) -> Lhs
-    where
-        Lhs: Neutral + Accumulable<I::Item>,
-    {
-        let initial = Lhs::neutral();
-
-        self.fold(initial, |lhs, rhs| lhs.accumulate(&rhs))
-    }
-
-    #[inline]
-    fn try_accumulate<Lhs>(mut self) -> Option<Lhs>
+    fn accumulate<Lhs>(mut self) -> Option<Lhs>
     where
         Lhs: From<I::Item> + Accumulable<I::Item>,
     {
@@ -54,44 +24,28 @@ where
     }
 }
 
-pub trait MaybeAccumulable<Rhs = Self> {
-    fn maybe_accumulate_in(&mut self, rhs: &Rhs) -> bool;
-
-    #[inline]
-    fn maybe_accumulate(mut self, rhs: &Rhs) -> Result<Self, Self>
-    where
-        Self: Sized,
-    {
-        if self.maybe_accumulate_in(rhs) {
-            Ok(self)
-        } else {
-            Err(self)
-        }
-    }
-}
-
-pub trait PartialAccumulate<Rhs>: Iterator {
-    fn try_partial_accumulate<Lhs>(self) -> TryPartialAccumulation<Self, Lhs>
+pub trait PartiallyAccumulate<Rhs>: Iterator {
+    fn partially_accumulate<Lhs>(self) -> PartiallyAccumulated<Self, Lhs>
     where
         Self: Sized,
         Lhs: From<Rhs> + MaybeAccumulable<Rhs>;
 }
 
-impl<I, Rhs> PartialAccumulate<Rhs> for I
+impl<I, Rhs> PartiallyAccumulate<Rhs> for I
 where
     I: Iterator,
 {
     #[inline]
-    fn try_partial_accumulate<Lhs>(self) -> TryPartialAccumulation<Self, Lhs>
+    fn partially_accumulate<Lhs>(self) -> PartiallyAccumulated<Self, Lhs>
     where
         Self: Sized,
         Lhs: From<Rhs> + MaybeAccumulable<Rhs>,
     {
-        TryPartialAccumulation::new(self)
+        PartiallyAccumulated::new(self)
     }
 }
 
-pub struct TryPartialAccumulation<I, Lhs>
+pub struct PartiallyAccumulated<I, Lhs>
 where
     I: Iterator,
 {
@@ -99,7 +53,7 @@ where
     _lhs: PhantomData<Lhs>,
 }
 
-impl<I, Lhs> TryPartialAccumulation<I, Lhs>
+impl<I, Lhs> PartiallyAccumulated<I, Lhs>
 where
     I: Iterator,
 {
@@ -111,7 +65,7 @@ where
     }
 }
 
-impl<I, Lhs> Iterator for TryPartialAccumulation<I, Lhs>
+impl<I, Lhs> Iterator for PartiallyAccumulated<I, Lhs>
 where
     I: Iterator,
     Lhs: From<I::Item> + MaybeAccumulable<I::Item>,
@@ -122,7 +76,7 @@ where
         let mut lhs = Lhs::from(self.iter.next()?);
 
         while let Some(rhs) = self.iter.peek() {
-            if lhs.maybe_accumulate_in(rhs) {
+            if lhs.maybe_accumulate_from(rhs) {
                 drop(self.iter.next());
             } else {
                 break;
@@ -140,14 +94,8 @@ mod tests {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Volume(u64);
 
-    impl Neutral for Volume {
-        fn neutral() -> Self {
-            Volume(0)
-        }
-    }
-
     impl Accumulable for Volume {
-        fn accumulate_in(&mut self, rhs: &Self) {
+        fn accumulate_from(&mut self, rhs: &Self) {
             *self = Volume(self.0 + rhs.0);
         }
     }
@@ -156,24 +104,27 @@ mod tests {
     fn test_accumulate_zero() {
         let volumes = [];
 
-        assert_eq!(
-            volumes.into_iter().accumulate::<Volume>(),
-            Volume::neutral()
-        );
+        assert_eq!(volumes.into_iter().accumulate::<Volume>(), None);
     }
 
     #[test]
     fn test_accumulate_one() {
         let volumes = [Volume(10)];
 
-        assert_eq!(volumes.into_iter().accumulate::<Volume>(), Volume(10));
+        assert_eq!(
+            volumes.into_iter().accumulate::<Volume>().unwrap(),
+            Volume(10)
+        );
     }
 
     #[test]
     fn test_accumulate() {
         let volumes = [Volume(10), Volume(15), Volume(20), Volume(25), Volume(30)];
 
-        assert_eq!(volumes.into_iter().accumulate::<Volume>(), Volume(100));
+        assert_eq!(
+            volumes.into_iter().accumulate::<Volume>().unwrap(),
+            Volume(100)
+        );
     }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -198,23 +149,17 @@ mod tests {
         }
     }
 
-    impl<const N: u64> Neutral for VolumeSize<N> {
-        fn neutral() -> Self {
-            VolumeSize::Small(Volume::neutral())
-        }
-    }
-
     impl<const N: u64> Accumulable for VolumeSize<N> {
-        fn accumulate_in(&mut self, rhs: &Self) {
+        fn accumulate_from(&mut self, rhs: &Self) {
             *self = VolumeSize::new(self.volume_value().accumulate(&rhs.volume_value()))
         }
     }
 
     impl<const N: u64> MaybeAccumulable for VolumeSize<N> {
-        fn maybe_accumulate_in(&mut self, rhs: &Self) -> bool {
+        fn maybe_accumulate_from(&mut self, rhs: &Self) -> bool {
             match self {
                 VolumeSize::Small(_) => {
-                    self.accumulate_in(rhs);
+                    self.accumulate_from(rhs);
 
                     true
                 }
@@ -224,35 +169,35 @@ mod tests {
     }
 
     #[test]
-    fn partial_accumulate_zero() {
+    fn partially_accumulate_zero() {
         type VolumeSize100 = VolumeSize<100>;
 
         let volumes = [];
 
-        let partial_accumulated = volumes
+        let partially_accumulated = volumes
             .into_iter()
-            .try_partial_accumulate::<VolumeSize100>()
+            .partially_accumulate::<VolumeSize100>()
             .collect::<Vec<_>>();
 
-        assert_eq!(partial_accumulated, vec![])
+        assert_eq!(partially_accumulated, vec![])
     }
 
     #[test]
-    fn partial_accumulate_one() {
+    fn partially_accumulate_one() {
         type VolumeSize100 = VolumeSize<100>;
 
         let volumes = [VolumeSize100::new(Volume(60))];
 
-        let partial_accumulated = volumes
+        let partially_accumulated = volumes
             .into_iter()
-            .try_partial_accumulate::<VolumeSize100>()
+            .partially_accumulate::<VolumeSize100>()
             .collect::<Vec<_>>();
 
-        assert_eq!(partial_accumulated, vec![VolumeSize100::Small(Volume(60))])
+        assert_eq!(partially_accumulated, vec![VolumeSize100::Small(Volume(60))])
     }
 
     #[test]
-    fn partial_accumulate() {
+    fn partially_accumulate() {
         type VolumeSize100 = VolumeSize<100>;
 
         let volumes = [
@@ -273,13 +218,13 @@ mod tests {
             VolumeSize100::new(Volume(1)),
         ];
 
-        let partial_accumulated = volumes
+        let partially_accumulated = volumes
             .into_iter()
-            .try_partial_accumulate::<VolumeSize100>()
+            .partially_accumulate::<VolumeSize100>()
             .collect::<Vec<_>>();
 
         assert_eq!(
-            partial_accumulated,
+            partially_accumulated,
             vec![
                 VolumeSize100::Large(Volume(105)),
                 VolumeSize100::Large(Volume(110)),
