@@ -16,35 +16,35 @@ pub trait Accumulate<Rhs>: Sized {
         Lhs: From<Rhs> + Accumulable<Rhs>;
 }
 
-pub enum AccumulatedState<Lhs> {
+pub(crate) enum AccumulatedState<Lhs> {
     Uninit,
     Accumulable(Lhs),
     Consumed,
 }
 
 impl<Lhs> AccumulatedState<Lhs> {
-    fn consume(&mut self) -> Option<Lhs> {
+    pub fn consume(&mut self) -> Option<Lhs> {
         match replace(self, AccumulatedState::Consumed) {
             AccumulatedState::Accumulable(item) => Some(item),
             _ => None,
         }
     }
 
-    fn reaccumulable(&mut self, lhs: Lhs) -> Option<Lhs> {
+    pub fn reaccumulable(&mut self, lhs: Lhs) -> Option<Lhs> {
         match replace(self, AccumulatedState::Accumulable(lhs)) {
             AccumulatedState::Accumulable(item) => Some(item),
             _ => None,
         }
     }
 
-    fn reinit(&mut self) -> Option<Lhs> {
+    pub fn reinit(&mut self) -> Option<Lhs> {
         match replace(self, AccumulatedState::Uninit) {
             AccumulatedState::Accumulable(item) => Some(item),
             _ => None,
         }
     }
 
-    fn is_consumed(&self) -> bool {
+    pub fn is_consumed(&self) -> bool {
         match self {
             AccumulatedState::Consumed => true,
             _ => false,
@@ -138,11 +138,14 @@ pub trait PartiallyAccumulate<Rhs> {
         Lhs: From<Rhs> + MaybeAccumulable<Rhs>;
 }
 
-impl<S, Rhs> PartiallyAccumulate<Rhs> for S {
+impl<S, Rhs> PartiallyAccumulate<Rhs> for S
+where
+    S: Stream,
+{
     #[inline]
-    fn partially_accumulate<Lhs>(self) -> PartiallyAccumulated<Self, Lhs>
+    fn partially_accumulate<Lhs>(self) -> PartiallyAccumulated<S, Lhs>
     where
-        Self: Sized,
+        S: Sized,
         Lhs: From<Rhs> + MaybeAccumulable<Rhs>,
     {
         PartiallyAccumulated::new(self)
@@ -330,7 +333,10 @@ mod tests {
             .collect::<Vec<_>>()
             .await;
 
-        assert_eq!(partially_accumulated, vec![VolumeSize100::Small(Volume(60))])
+        assert_eq!(
+            partially_accumulated,
+            vec![VolumeSize100::Small(Volume(60))]
+        )
     }
 
     #[tokio::test]

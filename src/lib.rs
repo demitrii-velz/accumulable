@@ -1,5 +1,6 @@
 pub mod iter;
 pub mod stream;
+pub mod try_stream;
 
 pub trait Accumulable<Rhs = Self> {
     fn accumulate_from(&mut self, rhs: &Rhs);
